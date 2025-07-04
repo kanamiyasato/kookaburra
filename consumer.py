@@ -12,9 +12,24 @@ def main():
     password=os.getenv('CLICKHOUSE_PASSWORD')
   )
 
+  def get_kafka_topics(bootstrap_servers):
+    consumer = KafkaConsumer(bootstrap_servers=bootstrap_servers)
+    topics = consumer.topics()
+    consumer.close()
+    return sorted(topics)
+  
+  topics = get_kafka_topics("localhost:9092")
+  print("Choose a topic to start reading from:")
+  for topic in topics:
+    print(topic)
+  selected_topic = input()
+
+  print(f"Reading from '{selected_topic}' topic")
+
+
   group_id = f"client-consumer-{int(time.time())}"
   consumer =  KafkaConsumer(
-    'messages',
+    selected_topic,
     bootstrap_servers='localhost:9092',
     auto_offset_reset='earliest',
     enable_auto_commit=False,
@@ -25,7 +40,7 @@ def main():
   try:
     message = next(consumer)
     data = json.loads(message.value)
-    print(f"Message: {data}")
+    print(f"Message found: {data}")
   
     json_string = json.dumps(data)
     ch_client.command("SET schema_inference_make_columns_nullable = 0;")
@@ -43,32 +58,34 @@ def main():
     print("No messages found in the topic.")
   finally:
     consumer.close()
-
   
   columns = ", ".join([f'{col["name"]} {col["type"]}' for col in schemaArray])
   column_names = ", ".join([col['name'] for col in schemaArray])
   
+  # create database
+  create_database = "CREATE DATABASE IF NOT EXISTS kafka_engine"
+
   # create destination table
-  create_destination_table = f"CREATE TABLE IF NOT EXISTS {messages} ("\
+  create_destination_table = f"CREATE TABLE IF NOT EXISTS kafka_engine.{selected_topic} ("\
                               f"{columns}) "\
                               f"ENGINE = MergeTree "\
-                              f"ORDER BY (timestamp) "\
-                              f"PRIMARY KEY ({col_name})"
+                              f"ORDER BY "
 
   # create kafka table engine table
-  create_engine_table = f"CREATE TABLE IF NOT EXISTS kafka_events_raw "\
+  create_engine_table = f"CREATE TABLE IF NOT EXISTS kafka_engine.kafka_events_raw "\
                         f"({columns}) "\
                         f"ENGINE = Kafka "\
                         f"SETTINGS "\
                         f"kafka_broker_list = 'localhost:9092', "\
-                        f"kafka_topic_list = 'messages', "\
+                        f"kafka_topic_list = '{selected_topic}', "\
                         f"kafka_group_name = 'clickhouse-consumer', "\
                         f"kafka_format = 'JSONEachRow', "\
-                        f"kafka_num_consumers = 1;"
+                        f"kafka_num_consumers = 1, "\
+                        f"kafka_auto_offset_reset = 'earliest';"
   
   # create materialized view
-  create_materialized_view = f"CREATE MATERIALIZED VIEW IF NOT EXISTS mv_{messages} "\
-                              f"TO messages "\
+  create_materialized_view = f"CREATE MATERIALIZED VIEW IF NOT EXISTS kafka_engine.mv_{selected_topic} "\
+                              f"TO kafka_engine.{selected_topic} "\
                               f"AS "\
                               f"SELECT {column_names} "\
                               f"FROM kafka_events_raw;"
