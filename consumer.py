@@ -27,7 +27,8 @@ def main():
   print(f"Reading from '{selected_topic}' topic")
 
 
-  group_id = f"client-consumer-{int(time.time())}"
+  # group_id = f"client-consumer-{int(time.time())}"
+  group_id = "clickhouse_consumer"
   consumer =  KafkaConsumer(
     selected_topic,
     bootstrap_servers='localhost:9092',
@@ -53,7 +54,7 @@ def main():
         'type': row[1],
       }
       schemaArray.append(schema)
-    print(schemaArray)
+    print(f"Schema inferred: {schemaArray}")
   except StopIteration:
     print("No messages found in the topic.")
   finally:
@@ -69,7 +70,7 @@ def main():
   create_destination_table = f"CREATE TABLE IF NOT EXISTS kafka_engine.{selected_topic} ("\
                               f"{columns}) "\
                               f"ENGINE = MergeTree "\
-                              f"ORDER BY "
+                              f"ORDER BY (timestamp)"
 
   # create kafka table engine table
   create_engine_table = f"CREATE TABLE IF NOT EXISTS kafka_engine.kafka_events_raw "\
@@ -78,18 +79,18 @@ def main():
                         f"SETTINGS "\
                         f"kafka_broker_list = 'localhost:9092', "\
                         f"kafka_topic_list = '{selected_topic}', "\
-                        f"kafka_group_name = 'clickhouse-consumer', "\
+                        f"kafka_group_name = '{group_id}', "\
                         f"kafka_format = 'JSONEachRow', "\
-                        f"kafka_num_consumers = 1, "\
-                        f"kafka_auto_offset_reset = 'earliest';"
+                        f"kafka_num_consumers = 1"\
   
   # create materialized view
   create_materialized_view = f"CREATE MATERIALIZED VIEW IF NOT EXISTS kafka_engine.mv_{selected_topic} "\
                               f"TO kafka_engine.{selected_topic} "\
                               f"AS "\
                               f"SELECT {column_names} "\
-                              f"FROM kafka_events_raw;"
+                              f"FROM kafka_engine.kafka_events_raw;"
   
+  ch_client.command(create_database)
   ch_client.command(create_destination_table)
   ch_client.command(create_engine_table)
   ch_client.command(create_materialized_view)
