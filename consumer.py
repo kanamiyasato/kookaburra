@@ -21,13 +21,11 @@ def main():
   topics = get_kafka_topics("localhost:9092")
   print("Choose a topic to start reading from:")
   for topic in topics:
-    print(topic)
+    print(f"- {topic}")
   selected_topic = input()
 
-  print(f"Reading from '{selected_topic}' topic")
+  print(f"\nReading from '{selected_topic}' topic")
 
-
-  # group_id = f"client-consumer-{int(time.time())}"
   group_id = "clickhouse_consumer"
   consumer =  KafkaConsumer(
     selected_topic,
@@ -54,7 +52,7 @@ def main():
         'type': row[1],
       }
       schemaArray.append(schema)
-    print(f"Schema inferred: {schemaArray}")
+    print(f"\nSchema inferred: {schemaArray}")
   except StopIteration:
     print("No messages found in the topic.")
   finally:
@@ -62,6 +60,20 @@ def main():
   
   columns = ", ".join([f'{col["name"]} {col["type"]}' for col in schemaArray])
   column_names = ", ".join([col['name'] for col in schemaArray])
+
+  print("\nPrimary keys available:")
+  for col in schemaArray:
+    print(f"- {col['name']}")
+
+  user_input = input("\nEnter the keys you want to select (comma-separated): ")
+  
+  selected_keys = [col.strip() for col in user_input.split(',') if col.strip()]
+
+  print("\nYou selected the following column names to be used as primary keys:")
+  for key in selected_keys:
+    print(f"- {key}")
+
+  primary_keys = ", ".join(selected_keys)
   
   # create database
   create_database = "CREATE DATABASE IF NOT EXISTS kafka_engine"
@@ -70,7 +82,7 @@ def main():
   create_destination_table = f"CREATE TABLE IF NOT EXISTS kafka_engine.{selected_topic} ("\
                               f"{columns}) "\
                               f"ENGINE = MergeTree "\
-                              f"ORDER BY (timestamp)"
+                              f"ORDER BY ({primary_keys})"
 
   # create kafka table engine table
   create_engine_table = f"CREATE TABLE IF NOT EXISTS kafka_engine.kafka_events_raw "\
@@ -94,6 +106,8 @@ def main():
   ch_client.command(create_destination_table)
   ch_client.command(create_engine_table)
   ch_client.command(create_materialized_view)
+
+  print("Destination table, engine table, and materialized view successfully created")
 
 if __name__ == '__main__':
   main()
